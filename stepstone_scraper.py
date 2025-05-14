@@ -4,6 +4,7 @@ import smtplib
 from email.mime.text import MIMEText
 import os
 import datetime
+import time
 
 KEYWORDS = ['codesys', 'iec61131-3']
 EMAIL_FROM = os.getenv('EMAIL_FROM')
@@ -12,29 +13,40 @@ EMAIL_PASSWORD = os.getenv('EMAIL_PASSWORD')
 SMTP_SERVER = 'smtp.gmail.com'
 SMTP_PORT = 587
 
-def fetch_stepstone_jobs(keyword):
-    url = f"https://www.stepstone.de/jobs/{keyword.replace(' ', '-')}.html"
-    headers = {"User-Agent": "Mozilla/5.0"}
-    response = requests.get(url, headers=headers)
+def fetch_indeed_jobs(keyword):
+    url = f"https://de.indeed.com/jobs?q={keyword.replace(' ', '+')}&l="
+    headers = {
+        "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/90.0 Safari/537.36"
+    }
+
+    try:
+        response = requests.get(url, headers=headers, timeout=10)
+        response.raise_for_status()
+    except requests.exceptions.RequestException as e:
+        print(f"❌ Failed to fetch jobs for keyword: {keyword} – {e}")
+        return []
 
     soup = BeautifulSoup(response.text, 'html.parser')
-    job_cards = soup.find_all('article', class_='ResultlistItem')
+    job_cards = soup.find_all('a', class_='tapItem')
 
     jobs = []
-    for card in job_cards[:10]:  # limit to top 10 results
-        title_tag = card.find('a', class_='ResultlistItem-title')
-        if title_tag:
+    for card in job_cards[:10]:  # limit to top 10 per keyword
+        title = card.find('h2', class_='jobTitle')
+        company = card.find('span', class_='companyName')
+        location = card.find('div', class_='companyLocation')
+
+        if title:
             job = {
-                'title': title_tag.get_text(strip=True),
-                'link': 'https://www.stepstone.de' + title_tag['href'],
-                'company': card.find('div', class_='ResultlistItem-subtitle').get_text(strip=True) if card.find('div', class_='ResultlistItem-subtitle') else '',
-                'location': card.find('div', class_='ResultlistItem-location').get_text(strip=True) if card.find('div', class_='ResultlistItem-location') else ''
+                'title': title.get_text(strip=True),
+                'link': 'https://de.indeed.com' + card['href'],
+                'company': company.get_text(strip=True) if company else '',
+                'location': location.get_text(strip=True) if location else ''
             }
             jobs.append(job)
     return jobs
 
 def send_email(jobs_by_keyword):
-    html = "<h2>📌 Daily Job Alert – StepStone</h2>"
+    html = "<h2>📌 Daily Job Alert – Indeed Germany</h2>"
     for keyword, jobs in jobs_by_keyword.items():
         html += f"<h3>🔍 {keyword}</h3><ul>"
         if jobs:
@@ -57,5 +69,7 @@ def send_email(jobs_by_keyword):
 if __name__ == "__main__":
     all_jobs = {}
     for keyword in KEYWORDS:
-        all_jobs[keyword] = fetch_stepstone_jobs(keyword)
+        print(f"🔍 Searching: {keyword}")
+        time.sleep(1)  # be polite to Indeed
+        all_jobs[keyword] = fetch_indeed_jobs(keyword)
     send_email(all_jobs)
